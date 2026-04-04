@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>Monitoring ESP32</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    body {
+      background-color: #121212;
+      color: #ffffff;
+      font-family: Arial;
+      text-align: center;
+    }
+
+    h2 {
+      color: #00e5ff;
+    }
+
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .start { background-color: #00e676; }
+    .stop { background-color: #ff5252; color: white; }
+
+    canvas {
+      background-color: #1e1e1e;
+      border-radius: 10px;
+      margin: 20px;
+      padding: 10px;
+      max-width: 90%;
+    }
+
+    table {
+      margin: auto;
+      border-collapse: collapse;
+      width: 90%;
+      background-color: #1e1e1e;
+    }
+
+    th, td {
+      padding: 8px;
+      border: 1px solid #333;
+    }
+
+    th {
+      background-color: #00bcd4;
+      color: black;
+    }
+
+    #status {
+      font-size: 18px;
+      margin: 10px;
+      font-weight: bold;
+    }
+  </style>
+
+</head>
+
+<body>
+
+<h2>🌙 Monitoring Sensor ESP32</h2>
+
+<!-- STATUS -->
+
+<p id="status">Status: Loading...</p>
+
+<!-- TOMBOL CONTROL -->
+
+<button class="start" onclick="setStatus('START')">🟢 START</button> <button class="stop" onclick="setStatus('STOP')">🔴 STOP</button>
+
+<!-- GRAFIK -->
+
+<h3>📊 Suhu (LM35 & DHT11)</h3>
+<canvas id="chartTemp"></canvas>
+
+<h3>💧 Kelembapan</h3>
+<canvas id="chartHum"></canvas>
+
+<h3>🚰 Flow Sensor</h3>
+<canvas id="chartFlow"></canvas>
+
+<br>
+
+<!-- TABEL -->
+
+<table id="data-table">
+  <tr>
+    <th>Waktu</th>
+    <th>LM35</th>
+    <th>DHT11</th>
+    <th>Humidity</th>
+    <th>Flow</th>
+  </tr>
+</table>
+
+<script>
+
+// ===== CONFIG =====
+const sheetURL = "https://opensheet.elk.sh/1FPYOkyNUxfQHIs9WuXchkAKFpV8WczjSBQfyN1OB2YE/DATA";
+const controlURL = "https://script.google.com/macros/s/AKfycbx-cziGXnj42WpcGbeZ4xOm3-StjmqZ-n_8pJy9binWBI0ezmUJgbqPCJS1ONNBNLYN/exec"; // ← GANTI INI
+
+const FLOW_MAX = 4.0;
+const FLOW_MIN = 0.3;
+
+// ===== CHART SUHU =====
+let chartTemp = new Chart(document.getElementById("chartTemp"), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: 'LM35 (°C)',
+        data: [],
+        borderColor: '#ff9800',
+        tension: 0.3
+      },
+      {
+        label: 'DHT11 (°C)',
+        data: [],
+        borderColor: '#00e5ff',
+        tension: 0.3
+      }
+    ]
+  }
+});
+
+// ===== CHART HUM =====
+let chartHum = new Chart(document.getElementById("chartHum"), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: 'Humidity (%)',
+      data: [],
+      borderColor: '#00e676',
+      tension: 0.3
+    }]
+  }
+});
+
+// ===== CHART FLOW =====
+let chartFlow = new Chart(document.getElementById("chartFlow"), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: 'Flow (L/min)',
+      data: [],
+      borderColor: '#ff5252',
+      tension: 0.3
+    }]
+  }
+});
+
+// ===== CONTROL START STOP =====
+function setStatus(state) {
+  fetch(controlURL + "?setStatus=" + state)
+    .then(res => res.text())
+    .then(data => {
+      document.getElementById("status").innerText = data;
+    });
+}
+
+// ===== LOAD DATA =====
+function loadData(){
+  fetch(sheetURL)
+    .then(res => res.json())
+    .then(data => {
+
+      let table = document.getElementById("data-table");
+      table.innerHTML = table.rows[0].outerHTML;
+
+      let labels = [];
+      let lm35Data = [];
+      let dhtData = [];
+      let humData = [];
+      let flowData = [];
+
+      data.slice(-10).forEach(row => {
+
+        let tr = table.insertRow();
+        tr.insertCell(0).innerText = row.Waktu;
+        tr.insertCell(1).innerText = row.LM35;
+        tr.insertCell(2).innerText = row.DHT11;
+        tr.insertCell(3).innerText = row.Humidity;
+        tr.insertCell(4).innerText = row.Flow;
+
+        labels.push(row.Waktu);
+        lm35Data.push(parseFloat(row.LM35));
+        dhtData.push(parseFloat(row.DHT11));
+        humData.push(parseFloat(row.Humidity));
+        flowData.push(parseFloat(row.Flow));
+
+        // 🔔 NOTIF FLOW
+        if (parseFloat(row.Flow) > FLOW_MAX) {
+          document.getElementById("status").innerText = "⚠️ FLOW TINGGI!";
+          document.getElementById("status").style.color = "red";
+        } else if (parseFloat(row.Flow) < FLOW_MIN) {
+          document.getElementById("status").innerText = "⚠️ FLOW RENDAH!";
+          document.getElementById("status").style.color = "orange";
+        } else {
+          document.getElementById("status").style.color = "lightgreen";
+        }
+
+      });
+
+      // UPDATE CHART
+      chartTemp.data.labels = labels;
+      chartTemp.data.datasets[0].data = lm35Data;
+      chartTemp.data.datasets[1].data = dhtData;
+      chartTemp.update();
+
+      chartHum.data.labels = labels;
+      chartHum.data.datasets[0].data = humData;
+      chartHum.update();
+
+      chartFlow.data.labels = labels;
+      chartFlow.data.datasets[0].data = flowData;
+      chartFlow.update();
+
+    });
+}
+
+// AUTO REFRESH
+setInterval(loadData, 3000);
+
+</script>
+
+</body>
+</html>
